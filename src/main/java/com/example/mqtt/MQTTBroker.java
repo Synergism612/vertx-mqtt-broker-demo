@@ -9,11 +9,9 @@ import io.vertx.mqtt.MqttTopicSubscription;
 import io.vertx.mqtt.messages.*;
 import io.vertx.mqtt.messages.codes.MqttDisconnectReasonCode;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
 
 import java.nio.charset.Charset;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 
 /**
  * mqtt单例类
@@ -189,10 +187,6 @@ public class MQTTBroker extends MQTT {
         }
         // 获取主题下的链接
         List<TopicInfo> topicInfos = topicMap.get(message.topicName());
-        String title = "MQTT";
-        int size = topicInfos.size();
-        Runnable[] jobs = new Runnable[size];
-
         // 写入消费和订阅记录
         QosMessageInfo messageInfo = qosMap.get(message.messageId());
         messageInfo.isUsed = true;
