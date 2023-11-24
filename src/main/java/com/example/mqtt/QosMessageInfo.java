@@ -21,7 +21,7 @@ public class QosMessageInfo {
      * 结果计数<br/>
      * 为了加速判断
      */
-    protected final AtomicInteger count = new AtomicInteger();
+    protected AtomicInteger count = new AtomicInteger();
 
     /**
      * 记录消息接收情况<br/>

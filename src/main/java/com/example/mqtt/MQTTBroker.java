@@ -12,6 +12,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 
 import java.nio.charset.Charset;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * mqtt单例类
@@ -84,6 +85,43 @@ public class MQTTBroker extends MQTT {
     }
 
     /**
+     * 根据主题名中获取主题池中对应的链接<br/>
+     * 主题名中可能存在通配符，通过通配符匹配主题<br/>
+     * 结果列表经过去重
+     *
+     * @param topic 含有通配符的主题
+     * @return 主题列表
+     */
+    private List<TopicInfo> getTopicsForWildcard(String topic) {
+        List<String> topics = new ArrayList<>();
+        String[] topicSplit = topic.split("/");
+        topicMap.keySet().forEach(key -> {
+            if (key.equals(topic)) {
+                topics.add(key);
+            } else {
+                String[] keySplit = key.split("/");
+                int i = -1, j = -1;
+                while (true) {
+                    i++;
+                    j++;
+                    if (i == topicSplit.length || j == keySplit.length) {
+                        if (topicSplit.length == keySplit.length) topics.add(key);
+                        break;
+                    }
+                    if (topicSplit[i].equals("#") || keySplit[j].equals("#")) {
+                        topics.add(key);
+                        break;
+                    }
+                    if (topicSplit[i].equals("+") || keySplit[j].equals("+")) continue;
+                    if (!topicSplit[i].equals(keySplit[j])) break;
+                }
+
+            }
+        });
+        return topics.stream().map(topicMap::get).flatMap(Collection::stream).distinct().toList();
+    }
+
+    /**
      * 获取qos等级</br>
      * qos降级</br>
      * 主题qos与消息qos对比，谁小选谁
@@ -104,10 +142,10 @@ public class MQTTBroker extends MQTT {
     private void reply(String clientId, Integer messageId) {
         if (qosMap.containsKey(messageId)) {
             QosMessageInfo info = qosMap.get(messageId);
-            info.count.getAndIncrement();
+            info.count.getAndDecrement();
             info.record.put(clientId, true);
             // 判断订阅者是否全部收到
-            if (topicMap.get(info.message.topicName()).size() == info.count.get()) {
+            if (info.count.get() <= 0) {
                 switch (info.message.qosLevel()) {
                     case AT_LEAST_ONCE -> {
                         Log.debug("订阅者全部收到，向发布者发送qos1回复Ack");
@@ -128,8 +166,8 @@ public class MQTTBroker extends MQTT {
         List<MqttQoS> grantedQosLevels = new ArrayList<>();
         for (MqttTopicSubscription subscription : subscribe.topicSubscriptions()) {
             String topic = subscription.topicName();
-            // 排除通配符主题，暂不支持
-            if (topic.isEmpty() || topic.contains("#") || topic.contains("+"))
+            // 排除空主题
+            if (topic.isEmpty())
                 continue;
             addTopic(topic, subscription.qualityOfService(), endpoint);
             Log.info("MQTT客户端：%s，订阅主题：%s，等级：%s".formatted(endpoint.clientIdentifier(), topic, subscription.qualityOfService()));
@@ -181,14 +219,12 @@ public class MQTTBroker extends MQTT {
     }
 
     protected void publishToSubscribers(MqttPublishMessage message) {
-        // 没有这个主题或主题下无链接则什么也不做
-        if (!topicMap.containsKey(message.topicName()) || topicMap.get(message.topicName()).isEmpty()) {
-            return;
-        }
         // 获取主题下的链接
-        List<TopicInfo> topicInfos = topicMap.get(message.topicName());
+        List<TopicInfo> topicInfos = getTopicsForWildcard(message.topicName());
+
         // 写入消费和订阅记录
         QosMessageInfo messageInfo = qosMap.get(message.messageId());
+        messageInfo.count = new AtomicInteger(topicInfos.size());
         messageInfo.isUsed = true;
 
         // 封装函数
